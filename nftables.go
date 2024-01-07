@@ -21,6 +21,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os/exec"
+	"strconv"
 	"strings"
 )
 
@@ -43,12 +44,9 @@ type Interface interface {
 	// list and no error.
 	List(ctx context.Context, objectType string) ([]string, error)
 
-	// ListRules returns a list of the rules in a chain, in order. Note that at the
-	// present time, the Rule objects will have their `Comment` and `Handle` fields
-	// filled in, but *not* the actual `Rule` field. So this can only be used to find
-	// the handles of rules if they have unique comments to recognize them by, or if
-	// you know the order of the rules within the chain. If the chain exists but
-	// contains no rules, this will return an empty list and no error.
+	// ListRules returns a list of the rules in a chain (in order, though without the
+	// "Index" fields set). If the chain exists but contains no rules, this will
+	// return an empty list and no error.
 	ListRules(ctx context.Context, chain string) ([]*Rule, error)
 
 	// ListElements returns a list of the elements in a set or map. (objectType should
@@ -296,32 +294,94 @@ func (nft *realNFTables) List(ctx context.Context, objectType string) ([]string,
 	return result, nil
 }
 
+// parsePlaintextRules takes plaintext (non-JSON) "nft -a list chain" output and creates a
+// map from handle to rule string (including comment). This is best-effort so it never
+// returns an error.
+func parsePlaintextRules(listOutput string) map[int]string {
+	// listOutput looks like:
+	//
+	// table inet firewalld { # handle 1
+	//     chain filter_INPUT { # handle 165
+	//         type filter hook input priority filter + 10; policy accept;
+	//         ct state { established, related } accept # handle 169
+	//         ct status dnat accept # handle 170
+	//         iifname "lo" accept # handle 171
+	//         ...
+	//     }
+	// }
+	//
+	// We assume that every line that has a handle and doesn't end with "{" before the
+	// handle is a rule.
+
+	lines := strings.Split(listOutput, "\n")
+	rules := make(map[int]string)
+	for _, line := range lines {
+		line := strings.TrimSpace(line)
+		parts := strings.Split(line, " # handle ")
+		if len(parts) != 2 || strings.HasSuffix(parts[0], "{") {
+			continue
+		}
+		rule, handleStr := parts[0], parts[1]
+
+		if comment := strings.LastIndex(rule, ` comment "`); comment != -1 {
+			rule = rule[:comment]
+		}
+		handle, err := strconv.Atoi(handleStr)
+		if err != nil {
+			continue
+		}
+		rules[handle] = rule
+	}
+
+	return rules
+}
+
 // ListRules is part of Interface
 func (nft *realNFTables) ListRules(ctx context.Context, chain string) ([]*Rule, error) {
+	// Fetch the rules in JSON format
 	cmd := exec.CommandContext(ctx, nft.path, "--json", "list", "chain", string(nft.family), nft.table, chain)
 	out, err := nft.exec.Run(cmd)
 	if err != nil {
 		return nil, fmt.Errorf("failed to run nft: %w", err)
 	}
-
 	jsonRules, err := getJSONObjects(out, "rule")
 	if err != nil {
 		return nil, fmt.Errorf("unable to parse JSON output: %w", err)
 	}
 
 	rules := make([]*Rule, 0, len(jsonRules))
-	for _, jsonRule := range jsonRules {
-		rule := &Rule{
-			Chain: chain,
-		}
+	if len(jsonRules) == 0 {
+		return rules, nil
+	}
 
+	// Re-fetch the rules in plaintext format
+	cmd = exec.CommandContext(ctx, nft.path, "--handle", "list", "chain", string(nft.family), nft.table, chain)
+	out, err = nft.exec.Run(cmd)
+	if err != nil {
+		return nil, fmt.Errorf("failed to run nft: %w", err)
+	}
+	// parsePlaintextRules will return a map from handle to plaintext rule
+	plaintextRules := parsePlaintextRules(out)
+
+	for _, jsonRule := range jsonRules {
 		// handle is written as an integer in nft's output, but json.Unmarshal
 		// will have parsed it as a float64. (Handles are uint64s, but they are
 		// assigned consecutively starting from 1, so as long as fewer than 2**53
 		// nftables objects have been created since boot time, we won't run into
 		// float64-vs-uint64 precision issues.)
-		if handle, ok := jsonVal[float64](jsonRule, "handle"); ok {
-			rule.Handle = PtrTo(int(handle))
+		handleFloat, ok := jsonVal[float64](jsonRule, "handle")
+		if !ok {
+			continue
+		}
+		handle := int(handleFloat)
+
+		rule := &Rule{
+			Chain:  chain,
+			Handle: &handle,
+
+			// Grab the corresponding rule from the plaintext output rather
+			// than trying to figure out the JSON one.
+			Rule: plaintextRules[handle],
 		}
 		if comment, ok := jsonVal[string](jsonRule, "comment"); ok {
 			rule.Comment = &comment
