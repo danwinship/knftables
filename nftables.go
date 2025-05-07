@@ -63,6 +63,17 @@ type Interface interface {
 	ListCounters(ctx context.Context) ([]*Counter, error)
 }
 
+// Option is an optional nftables feature that an Interface might or might not support
+type Option string
+
+const (
+	// NoObjectCommentEmulation turns off the default knftables.Interface behavior of
+	// ignoring comments on Table, Chain, Set, and Map objects if the underlying CLI
+	// or kernel does not support them. (The only real reason to specify this is if
+	// you want to avoid doing any "nft check" calls at construction time.)
+	NoObjectCommentEmulation Option = "NoObjectCommentEmulation"
+)
+
 type nftContext struct {
 	family Family
 	table  string
@@ -83,9 +94,18 @@ type realNFTables struct {
 	path string
 }
 
+func optionSet(options []Option, option Option) bool {
+	for _, o := range options {
+		if o == option {
+			return true
+		}
+	}
+	return false
+}
+
 // newInternal creates a new nftables.Interface for interacting with the given table; this
 // is split out from New() so it can be used from unit tests with a fakeExec.
-func newInternal(family Family, table string, execer execer) (Interface, error) {
+func newInternal(family Family, table string, execer execer, options ...Option) (Interface, error) {
 	var err error
 
 	nft := &realNFTables{
@@ -118,14 +138,16 @@ func newInternal(family Family, table string, execer execer) (Interface, error) 
 		Comment: PtrTo("test"),
 	})
 	if err := nft.Check(context.TODO(), tx); err != nil {
-		// Try again, checking just that (a) nft works, (b) we have permission.
-		tx := nft.NewTransaction()
-		tx.Add(&Table{})
-		if err := nft.Check(context.TODO(), tx); err != nil {
+		nft.noObjectComments = true
+		if !optionSet(options, NoObjectCommentEmulation) {
+			// Try again, checking just that (a) nft works, (b) we have permission.
+			tx := nft.NewTransaction()
+			tx.Add(&Table{})
+			err = nft.Check(context.TODO(), tx)
+		}
+		if err != nil {
 			return nil, fmt.Errorf("could not run nftables command: %w", err)
 		}
-
-		nft.noObjectComments = true
 	}
 
 	return nft, nil
@@ -133,8 +155,15 @@ func newInternal(family Family, table string, execer execer) (Interface, error) 
 
 // New creates a new nftables.Interface for interacting with the given table. If nftables
 // is not available/usable on the current host, it will return an error.
-func New(family Family, table string) (Interface, error) {
-	return newInternal(family, table, realExec{})
+//
+// In addition to the family and table, you can specify additional comma-separated options
+// to New(). The currently-supported options are:
+//
+//   - NoObjectCommentEmulation: disables the default knftables.Interface behavior of
+//     ignoring comments on Table, Chain, Set, and Map objects if the underlying CLI or
+//     kernel does not support them.
+func New(family Family, table string, options ...Option) (Interface, error) {
+	return newInternal(family, table, realExec{}, options...)
 }
 
 // NewTransaction is part of Interface
