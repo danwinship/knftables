@@ -77,18 +77,22 @@ func (table *Table) writeOperation(verb verb, ctx *nftContext, writer io.Writer)
 	fmt.Fprintf(writer, "%s table %s %s", verb, ctx.family, ctx.table)
 	if verb == addVerb || verb == createVerb {
 		hasComment := table.Comment != nil && !ctx.noObjectComments
-		if hasComment || len(table.Flags) != 0 {
+		flags := table.Flags
+		if ctx.autoOwnerPersist {
+			flags = append([]TableFlag{OwnerFlag, PersistFlag}, flags...)
+		}
+		if hasComment || len(flags) != 0 {
 			fmt.Fprintf(writer, " {")
 			if hasComment {
 				fmt.Fprintf(writer, " comment %q ;", *table.Comment)
 			}
-			if len(table.Flags) != 0 {
+			if len(flags) != 0 {
 				fmt.Fprintf(writer, " flags ")
-				for i := range table.Flags {
+				for i := range flags {
 					if i > 0 {
 						fmt.Fprintf(writer, ",")
 					}
-					fmt.Fprintf(writer, "%s", table.Flags[i])
+					fmt.Fprintf(writer, "%s", flags[i])
 				}
 				fmt.Fprintf(writer, " ;")
 			}

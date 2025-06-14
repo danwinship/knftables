@@ -989,6 +989,57 @@ func TestNoObjectComments(t *testing.T) {
 	}
 }
 
+func TestAutoOwnerPersist(t *testing.T) {
+	for _, tc := range []struct {
+		name             string
+		object           Object
+		autoOwnerPersist bool
+		out              string
+	}{
+		{
+			name:   "add table with explicit owner,persist",
+			object: &Table{Flags: []TableFlag{OwnerFlag, PersistFlag}},
+			out:    `add table ip mytable { flags owner,persist ; }`,
+		},
+		{
+			name: "add table with explicit owner,persist and comment",
+			object: &Table{
+				Comment: PtrTo("a comment"),
+				Flags:   []TableFlag{OwnerFlag, PersistFlag},
+			},
+			out: `add table ip mytable { comment "a comment" ; flags owner,persist ; }`,
+		},
+		{
+			name:             "add table with AutoOwnerPersist",
+			object:           &Table{},
+			autoOwnerPersist: true,
+			out:              `add table ip mytable { flags owner,persist ; }`,
+		},
+		{
+			name:             "add table with comment with AutoOwnerPersist",
+			object:           &Table{Comment: PtrTo("a comment")},
+			autoOwnerPersist: true,
+			out:              `add table ip mytable { comment "a comment" ; flags owner,persist ; }`,
+		},
+		{
+			name:             "add table with explicit flags and AutoOwnerPersist",
+			object:           &Table{Flags: []TableFlag{DormantFlag}},
+			autoOwnerPersist: true,
+			out:              `add table ip mytable { flags owner,persist,dormant ; }`,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			b := &strings.Builder{}
+			ctx := &nftContext{family: IPv4Family, table: "mytable", autoOwnerPersist: tc.autoOwnerPersist}
+			tc.object.writeOperation(addVerb, ctx, b)
+			out := strings.TrimSuffix(b.String(), "\n")
+			if out != tc.out {
+				t.Errorf("expected %q but got %q", tc.out, out)
+			}
+		})
+	}
+}
+
 func TestParsePriority(t *testing.T) {
 	for _, tc := range []struct {
 		name     string

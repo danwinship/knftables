@@ -550,6 +550,59 @@ func TestFeatures(t *testing.T) {
 			},
 			result: nil,
 		},
+		{
+			name:    "AutoOwnerPersist when owner,persist not supported",
+			options: []Option{AutoOwnerPersist},
+			commands: []expectedCmd{
+				{
+					args: []string{
+						"/nft", "--version",
+					},
+					stdout: "nftables v1.0.7 (Old Doc Yak)\n",
+				},
+				{
+					args:  []string{"/nft", "--check", "-f", "-"},
+					stdin: "add table ip testing { comment \"test\" ; }\n",
+				},
+				{
+					args:  []string{"/nft", "--check", "-f", "-"},
+					stdin: "add table ip testing { flags owner,persist ; }\n",
+					err:   fmt.Errorf("Error: unknown flags, blah blah"),
+				},
+			},
+			result: &nftContext{
+				family: IPv4Family,
+				table:  "testing",
+
+				autoOwnerPersist: false,
+			},
+		},
+		{
+			name:    "AutoOwnerPersist when owner,persist are supported",
+			options: []Option{AutoOwnerPersist},
+			commands: []expectedCmd{
+				{
+					args: []string{
+						"/nft", "--version",
+					},
+					stdout: "nftables v1.0.7 (Old Doc Yak)\n",
+				},
+				{
+					args:  []string{"/nft", "--check", "-f", "-"},
+					stdin: "add table ip testing { comment \"test\" ; }\n",
+				},
+				{
+					args:  []string{"/nft", "--check", "-f", "-"},
+					stdin: "add table ip testing { flags owner,persist ; }\n",
+				},
+			},
+			result: &nftContext{
+				family: IPv4Family,
+				table:  "testing",
+
+				autoOwnerPersist: true,
+			},
+		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			fexec := newFakeExec(t)

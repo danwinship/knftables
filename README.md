@@ -45,7 +45,7 @@ Create an `Interface` object to manage operations on a single nftables
 table:
 
 ```golang
-nft, err := knftables.New(knftables.IPv4Family, "my-table")
+nft, err := knftables.New(knftables.IPv4Family, "my-table", knftables.AutoOwnerPersist)
 if err != nil {
         return fmt.Errorf("no nftables support: %v", err)
 }
@@ -53,7 +53,10 @@ if err != nil {
 
 `knftables.New` also takes a comma-separated list of options after the
 family and table name; see the documentation for that function for
-more information.
+more information. In this example, we pass the
+`knftables.AutoOwnerPersist` flag, which tells it to automatically add
+the `"owner"` and `"persist"` flags when creating a `knftables.Table`,
+if the system is new enough to support those flags.
 
 (If you want to operate on multiple tables or multiple nftables
 families, you will need separate `Interface` objects for each. If you
@@ -89,6 +92,7 @@ operations to the transaction, and then call `nft.Run` on it:
 ```golang
 tx := nft.NewTransaction()
 
+tx.Add(&knftables.Table{})
 tx.Add(&knftables.Chain{
         Name:    "mychain",
         Comment: knftables.PtrTo("this is my chain"),

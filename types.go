@@ -78,6 +78,18 @@ const (
 	// DormantFlag indicates that a table is not currently evaluated. (Its base chains
 	// are unregistered.)
 	DormantFlag TableFlag = "dormant"
+	// OwnerFlag indicates that the table is owned by the process that created it;
+	// other processes will not be allowed to modify it, and it will be removed when
+	// the owning process exits (unless the "persist" flag is also set). If you create
+	// an Interface with the `AutoOwnerPersist` flag, then knftables will
+	// automatically add this flag when creating a table, if the system supports it.
+	OwnerFlag TableFlag = "owner"
+	// PersistFlag indicates that an owned table is persistent and should not be
+	// deleted when its owning process exits. A new process can then become its owner
+	// by re-Add-ing it with the same flags. If you create an Interface with the
+	// `AutoOwnerPersist` flag, then knftables will automatically add this flag when
+	// creating a table, if the system supports it.
+	PersistFlag TableFlag = "persist"
 )
 
 // Table represents an nftables table.

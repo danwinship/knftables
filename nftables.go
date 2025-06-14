@@ -72,6 +72,10 @@ const (
 	// or kernel does not support them. (The only real reason to specify this is if
 	// you want to avoid doing any "nft check" calls at construction time.)
 	NoObjectCommentEmulation Option = "NoObjectCommentEmulation"
+
+	// AutoOwnerPersist makes the Interface automatically add OwnerFlag and
+	// PersistFlag to Table definitions if `nft` and the kernel support them.
+	AutoOwnerPersist Option = "AutoOwnerPersist"
 )
 
 type nftContext struct {
@@ -81,6 +85,10 @@ type nftContext struct {
 	// noObjectComments is true if comments on Table/Chain/Set/Map are not supported.
 	// (Comments on Rule and Element are always supported.)
 	noObjectComments bool
+
+	// autoOwnerPersist is true if we should automatically add the "owner" and
+	// "persist" flags to table creations.
+	autoOwnerPersist bool
 }
 
 // realNFTables is an implementation of Interface
@@ -150,6 +158,16 @@ func newInternal(family Family, table string, execer execer, options ...Option) 
 		}
 	}
 
+	if optionSet(options, AutoOwnerPersist) {
+		tx := nft.NewTransaction()
+		tx.Add(&Table{
+			Flags: []TableFlag{OwnerFlag, PersistFlag},
+		})
+		if err := nft.Check(context.TODO(), tx); err == nil {
+			nft.autoOwnerPersist = true
+		}
+	}
+
 	return nft, nil
 }
 
@@ -162,6 +180,10 @@ func newInternal(family Family, table string, execer execer, options ...Option) 
 //   - NoObjectCommentEmulation: disables the default knftables.Interface behavior of
 //     ignoring comments on Table, Chain, Set, and Map objects if the underlying CLI or
 //     kernel does not support them.
+//
+//   - AutoOwnerPersist: automatically adds `OwnerFlag` and `PersistFlag` to `Table`
+//     creation operations if the system supports those flags, preventing other processes
+//     from being able to modify your table.
 func New(family Family, table string, options ...Option) (Interface, error) {
 	return newInternal(family, table, realExec{}, options...)
 }
